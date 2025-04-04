@@ -1,0 +1,42 @@
+name: Deploy Flask App to AWS
+
+on:
+  push:
+    branches:
+      - main  # Runs this workflow when code is pushed to 'main' branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4  # Pulls your code from GitHub repository
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}  # Docker Hub username (stored in GitHub Secrets)
+        password: ${{ secrets.DOCKER_PASSWORD }}  # Docker Hub password (stored in GitHub Secrets)
+
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/flask-app:latest .
+        docker push ${{ secrets.DOCKER_USERNAME }}/flask-app:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy to AWS EC2
+      uses: appleboy/ssh-action@v1.0.3  # SSH into EC2 instance
+      with:
+        host: ${{ secrets.AWS_HOST }}  # AWS Public IP (stored in GitHub Secrets)
+        username: ${{ secrets.AWS_USERNAME }}  # SSH Username (for Ubuntu use 'ubuntu')
+        key: ${{ secrets.AWS_SSH_KEY }}  # Private SSH key (stored in GitHub Secrets)
+        script: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/flask-app:latest
+          docker stop flask-app || true
+          docker rm flask-app || true
+          docker run -d -p 80:5000 --name flask-app ${{ secrets.DOCKER_USERNAME }}/flask-app:latest
