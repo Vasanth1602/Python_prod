@@ -1,0 +1,96 @@
+---
+- name: Install Docker, Prometheus, and Grafana if not installed
+  hosts: monitoring
+  become: yes  # Run as root
+  
+  tasks:
+
+    # 🛠️ Install Docker if not installed
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      ignore_errors: yes
+
+    - name: Install Docker if not found
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+      when: docker_check.rc != 0
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    # 🛠️ Install Prometheus if not installed
+    - name: Check if Prometheus is installed
+      stat:
+        path: /usr/local/bin/prometheus
+      register: prometheus_check
+
+    - name: Download Prometheus if not found
+      get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v2.37.0/prometheus-2.37.0.linux-amd64.tar.gz"
+        dest: "/tmp/prometheus.tar.gz"
+      when: not prometheus_check.stat.exists
+
+    - name: Extract Prometheus if not installed
+      ansible.builtin.unarchive:
+        src: "/tmp/prometheus.tar.gz"
+        dest: "/opt/"
+        remote_src: yes
+      when: not prometheus_check.stat.exists
+
+    - name: Move Prometheus binaries
+      command: mv /opt/prometheus-2.37.0.linux-amd64/prometheus /usr/local/bin/
+      when: not prometheus_check.stat.exists
+
+    - name: Create Prometheus systemd service
+      copy:
+        dest: "/etc/systemd/system/prometheus.service"
+        content: |
+          [Unit]
+          Description=Prometheus Monitoring System
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+          Restart=always
+          User=root
+
+          [Install]
+          WantedBy=multi-user.target
+      when: not prometheus_check.stat.exists
+
+    - name: Start and enable Prometheus service
+      systemd:
+        name: prometheus
+        enabled: yes
+        state: started
+
+    # 🛠️ Install Grafana if not installed
+    - name: Check if Grafana is installed
+      stat:
+        path: /usr/sbin/grafana-server
+      register: grafana_check
+
+    - name: Add Grafana APT repository if Grafana not installed
+      shell: |
+        wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+        echo "deb https://packages.grafana.com/oss/deb stable main" | sudo tee -a /etc/apt/sources.list.d/grafana.list
+      when: not grafana_check.stat.exists
+
+    - name: Install Grafana if not found
+      apt:
+        name: grafana
+        state: present
+        update_cache: yes
+      when: not grafana_check.stat.exists
+
+    - name: Start and enable Grafana service
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
